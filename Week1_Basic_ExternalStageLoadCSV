@@ -1,0 +1,73 @@
+/* Frosty Friday WEEK 1 - BASIC (https://frostyfriday.org/2022/07/14/week-1/)
+Objective: create an external stage, load the csv directly from stage into a table */
+
+-- Step 1 Setting up:
+
+-- 1.a database
+CREATE DATABASE IF NOT EXISTS FrostyFriday;
+
+USE DATABASE FROSTYFRIDAY;
+
+-- 1.b schema 
+CREATE OR REPLACE SCHEMA Week1;
+
+USE SCHEMA Week1;
+
+-- 1.c stage
+CREATE OR REPLACE STAGE 
+    stg_raw_FF1 url='s3://frostyfridaychallenges/challenge_1/';
+
+-- 2. Explore Data
+
+-- 2.a list content of s3
+LIST @stg_raw_FF1;
+// three files listed 1.csv, 2 and 3
+
+-- 2.b What's in there?
+SELECT 
+    $1 AS Field1, 
+    METADATA$FILE_ROW_NUMBER AS Row_Nr, 
+    METADATA$FILENAME AS File_Id
+FROM @stg_raw_FF1
+-- after seeing output added order by
+ORDER BY File_Id, Row_Nr; 
+-- gives result: "You have gotten it right congratulations!"
+
+-- Note that there is one row as Null and one value "totally_empty"
+
+
+-- 3. add Data to a Table.
+
+-- 3a create table
+CREATE OR REPLACE TABLE tbl_raw_Week1 (
+    Field1 VARCHAR(255), -- cannot help myself..
+    Row_Nr INT,
+    File_Id VARCHAR(255)
+);
+
+-- 3b file format
+CREATE OR REPLACE FILE FORMAT format_FF_Week1_csv
+    type = CSV
+    field_delimiter = NONE
+    skip_header = 1
+    record_delimiter = '\n'
+    null_if = ('NULL', 'null');
+
+-- 3c fill the table from staging file
+COPY INTO tbl_raw_Week1
+FROM (
+    -- re-use 2.b
+    SELECT 
+        $1 AS Field1, 
+        METADATA$FILE_ROW_NUMBER AS Row_Nr, 
+        METADATA$FILENAME AS File_Id
+    FROM @stg_raw_FF1
+    -- re-use 3.b
+        (file_format => 'format_FF_Week1_csv')
+);
+
+-- Query the table
+SELECT *
+FROM tbl_raw_Week1
+WHERE Field1 <> 'totally_empty'
+ORDER BY File_Id, Row_Nr;
