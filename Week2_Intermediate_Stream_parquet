@@ -1,0 +1,141 @@
+/* Frosty Friday WEEK 2 - INTERMEDIATE 
+(https://frostyfriday.org)
+
+Objective: create an external stage, load the csv directly from stage into a table */
+
+-- Step 1 Setting up:
+
+-- 1.a database
+USE DATABASE frostyfridayaj5;
+
+-- 1.b schema 
+CREATE OR REPLACE SCHEMA challenges;
+
+
+
+USE SCHEMA challenges;
+
+-- 1.c raw file.data stage
+CREATE OR REPLACE STAGE 
+    stg_raw_FF2 url='s3://frostyfridaychallenges/challenge_2/';
+
+
+-- 2. Explore Data
+-- 2.a list content of stage
+LIST @stg_raw_FF2;
+
+//Conclusion: name of 1 row record: s3://frostyfridaychallenges/challenge_2/employees.parquet
+
+-- parquet being new I used this link as a guide: https://docs.snowflake.com/en/user-guide/script-data-load-transform-parquet.html and https://docs.snowflake.com/en/sql-reference/functions/infer_schema.html
+
+-- 2.b. create file format
+CREATE OR REPLACE FILE FORMAT my_parquet_format
+    type = 'parquet';
+
+-- 2.c infer schema
+SELECT *
+FROM TABLE (
+    infer_schema(
+        LOCATION=>'@stg_raw_FF2/employees.parquet'
+        ,FILE_FORMAT=>'my_parquet_format'
+    )
+);
+
+//provides a table layout with columns, data type and nullable.
+
+-- Skipping creating a raw landing table.
+
+
+-- 3 Setting up data
+
+-- 3.a. create table
+CREATE OR REPLACE TEMPORARY TABLE TBL_Employees(
+    email VARCHAR
+    , country VARCHAR
+    , country_code VARCHAR
+    , eduction VARCHAR
+    , postcode VARCHAR
+    , first_name VARCHAR
+    , street_name VARCHAR
+    , job_title VARCHAR
+    , city VARCHAR
+    , employee_id NUMBER
+    , last_name VARCHAR
+    , time_zone VARCHAR
+    , street_num NUMBER
+    , payroll_iban VARCHAR
+    , suffix VARCHAR
+    , dept VARCHAR
+    , title VARCHAR
+);
+
+//DROP TABLE Employees;
+
+-- 3.b copy data in table
+COPY INTO TBL_Employees
+FROM (
+    SELECT
+    $1:email
+    , $1:country
+    , $1:country_code
+    , $1:education
+    , $1:postcode
+    , $1:first_name
+    , $1:street_name
+    , $1:job_title
+    , $1:city
+    , $1:employee_id
+    , $1:last_name
+    , $1:time_zone
+    , $1:street_num
+    , $1:payroll_iban
+    , $1:suffix
+    , $1:dept
+    , $1:title
+    FROM @stg_raw_FF2/employees.parquet
+        (file_format=> 'my_parquet_format') //forgot file format ...
+);
+
+-- 3.c. having a look:
+SELECT * 
+FROM TBL_Employees
+ORDER BY employee_id
+LIMIT 10;
+// could have re-ordered the columns logically
+
+-- 4. Stream
+-- I read this: https://docs.snowflake.com/en/sql-reference/sql/create-stream.html
+-- Had to read up more an noted that Views are often used to isolate columns as is being asked here.
+
+CREATE OR REPLACE VIEW VIEW_Employees AS
+SELECT 
+    employee_id 
+    , dept
+    , job_title 
+FROM TBL_Employees;
+-- had to add in Employee_id got aggregated result first time around
+
+//DROP VIEW VIEW_EMPLOYEES;
+
+SELECT *
+FROM VIEW_Employees
+LIMIT 10;
+
+-- 4.b. create the stream following the guide
+CREATE OR REPLACE STREAM STREAM_Employees
+    ON VIEW VIEW_Employees;
+
+
+-- 4.c. Put in the updates
+UPDATE TBL_Employees SET COUNTRY = 'Japan' WHERE EMPLOYEE_ID = 8;
+UPDATE TBL_Employees SET LAST_NAME = 'Forester' WHERE EMPLOYEE_ID = 22;
+UPDATE TBL_Employees SET DEPT = 'Marketing' WHERE EMPLOYEE_ID = 25;
+UPDATE TBL_Employees SET TITLE = 'Ms' WHERE EMPLOYEE_ID = 32;
+UPDATE TBL_Employees SET JOB_TITLE = 'Senior Financial Analyst' WHERE EMPLOYEE_ID = 68;
+
+-- 5. Run Stream
+
+SELECT * FROM STREAM_Employees;
+
+-- first time around noted got aggregated changes and not showing marketing.
+// DROP TABLE TBL_Employees;
